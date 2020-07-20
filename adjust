@@ -77,7 +77,7 @@ class RolloutAdjust(Adjust):
             for en, ev in self.config['env'].items():
                 ev = dict(ev) # make a copy (only need shallow)
                 if 'encoder' in ev:
-                    for name, setting in describe_encoder(
+                    for name, setting in _describe_encoder(
                         env_map.get(en), 
                         ev['encoder'],
                         exception_context='an environment variable {}'
@@ -93,7 +93,7 @@ class RolloutAdjust(Adjust):
 
         command = self.config.get('command')
         if command and command.get('encoder'):
-            for name, setting in describe_encoder(
+            for name, setting in _describe_encoder(
                 app.get('command', []), 
                 command['encoder'],
                 exception_context='a command section'
@@ -132,7 +132,7 @@ class RolloutAdjust(Adjust):
         # Update command
         command = self.config.get('command')
         if command and command.get('encoder'):
-            tgt_resource['command'], encoded_settings = encode_encoder(input_settings, command['encoder'], expected_type=list)
+            tgt_resource['command'], encoded_settings = _encode_encoder(input_settings, command['encoder'], expected_type=list)
             # Prevent encoded settings from further processing
             for setting in encoded_settings:
                 del input_settings[setting]
