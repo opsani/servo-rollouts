@@ -1,13 +1,26 @@
 import yaml
+import copy
+import importlib
+import sys
+import os
+import errno
+import subprocess
 import time
+
 from pprint import pprint
-from kubernetes import client, config
+from kubernetes import client, config, watch
 from kubernetes.client.rest import ApiException
+from adjust import Adjust, AdjustError
+
+# functions from servo-k8s
 
 
+
+
+# new functinos for rollout
 def get_object(api, group, version, namespace, plural, name):
     """
-    patch an object (patch_namespaced_custom_object)
+    read an object (get_namespaced_custom_object)
     returns: resource_object (e.g. spec.template.spec)
     raises: ApiException
     """
@@ -16,15 +29,16 @@ def get_object(api, group, version, namespace, plural, name):
         resource = api.get_namespaced_custom_object(
             group, version, namespace, plural, name,
         )
-        print("Initial Resource details:")
-        pprint(resource)
-        return resource['spec']['template']['spec']
+        # print("Initial Resource details:")
+        # pprint(resource)
+        return resource
 
     except ApiException as e:
         print(
             "Exception when calling CustomObjectsApi->get_namespaced_custom_object: %s\n"
             % e
         )
+
 
 def patch_object(api, group, version, namespace, plural, name, body):
     """
@@ -49,65 +63,64 @@ def patch_object(api, group, version, namespace, plural, name, body):
 def watch_object(api, group, version, namespace, plural, name, changing):
     """
     patch an object (patch_namespaced_custom_object)
-    returns: changing on success
+    returns: rollout-selector
     raises: ApiException
     """
 
     while changing is True:
         try:
-            print("Resource list:")
+            # print("Resource list:")
             resource_list = api.list_namespaced_custom_object(
                 group,
                 version,
                 namespace,
                 plural,
                 watch=False,
-                label_selector='app=web',
+                label_selector="app=web",
             )
-            pprint(resource_list)
-            print("Resource list status:")
-
+            # pprint(resource_list)
+            # print("Resource list status:")
+            active_selector = {
+                "active": resource_list["items"][0]["status"]["blueGreen"][
+                    "activeSelector"
+                ]
+            }
             if (
                 resource_list["items"][0]["status"]["blueGreen"]["activeSelector"]
                 == resource_list["items"][0]["status"]["blueGreen"]["previewSelector"]
             ):
                 changing = False
                 print("Change completed")
+                return active_selector
                 break
 
             print("Resource status:")
-            pprint(resource_list["items"][0]["status"]
-                   ["blueGreen"]["activeSelector"])
+            pprint(resource_list["items"][0]["status"]["blueGreen"]["activeSelector"])
 
         except ApiException as e:
             print(
                 "Exception when calling CustomObjectsApi->list_namespaced_custom_object: %s\n"
                 % e
             )
-
         time.sleep(watch_timeout)
 
-if __name__ == "__main__":
-    #pass
 
-    config.load_kube_config()
-    # config.load_incluster_config()
+# DESCRIBE, and ensure rollout object will autopromote
+
+
+def query(servo_conifg):
+    # api, group, version, namespace, plural, name
+    #config.load_kube_config()
+    config.load_incluster_config()
 
     api = client.CustomObjectsApi()
 
-    servo_config = yaml.safe_load(open("config.yaml"))
-    print("Config")
-    pprint(servo_config)
-
-    ro_namespace = "argo-ro-test"
-    ro_name = "web-main"
-    ro_force_promote = True
     patch_autopromote = {
-        "spec": {"strategy": {"blueGreen": {"autoPromotionEnabled": ro_force_promote, }}}
+        "spec": {"strategy": {"blueGreen": {"autoPromotionEnabled": True, }}}
     }
 
     # Timeout for watch loop in seconds
-    watch_timeout = 15
+    watch_timeout = servo_config["watch_timeout"]
 
     # set to true after an adjustment
     changing = False
@@ -115,58 +128,202 @@ if __name__ == "__main__":
     # rollout namespaced object requirements
     group = "argoproj.io"
     version = "v1alpha1"
-    name = ro_name
     plural = "rollouts"
-    namespace = ro_namespace
-    container_name = 'main'
 
-    # adjust parameters
-    new_cpu = "1250m"
-    new_mem = "1.25Gi"
-    replicas = 4
-    busy_param = "40"
+    name = servo_config["name"]
+    namespace = servo_config["namespace"]
+    container_name = servo_config["container_name"]
+
+    object = get_object(api, group, version, namespace, plural, name)
     
-    # DESCRIBE, and ensure rollout object will autopromote
-    object=get_object(api, group, version, namespace, plural, name)
+    # First let's ensure that we will auto-promote changes
     body = {
-        "spec": {"strategy": {"blueGreen": {"autoPromotionEnabled": ro_force_promote, }}}
+        "spec": {"strategy": {"blueGreen": {"autoPromotionEnabled": True,}}}
     }
-    #print("Applying describe change")
     changing = patch_object(api, group, version, namespace, plural, name, body)
-    #print("Watching Describe change")
     watch_object(api, group, version, namespace, plural, name, changing)
-
-    # ADJUST
-    object=get_object(api, group, version, namespace, plural, name)
-    body = {'spec':{'template':{'spec':object}}}
-    print("old container spec")
-    pprint(body)
 
     # determine which container to update
-    container_index=0
-    for n in body['spec']['template']['spec']['containers']:
-        if container_name == n['name']:
+    container_index = 0
+    for n in object["spec"]["template"]["spec"]["containers"]:
+        if container_name == n["name"]:
             break
         container_index += 1
-    
+
     # get the container template
-    app = body['spec']['template']['spec']['containers'][container_index]
+    app = object["spec"]["template"]["spec"]["containers"][container_index]
 
-    new_args=['busy = ' + busy_param ]
-    new_limits = {'limits': {'cpu': new_cpu,
-                             'memory': new_mem},
-                  }
-    app['args']=new_args
-    app['resources'].update(new_limits)
+    state={}
+    state.update({replicas: object["spec"]["replicas"]})
+    state.update({cpu: app['resources']['limit']['cpu']})
+    state.update({mem: app['resources']['limit']['cpu']})
 
-    body['spec']['replicas']=replicas
-    print("new container spec")
-    pprint(app)
-    body['spec']['template']['spec']['containers'][container_index].update(app)
-    print("new container spec")
-    pprint(body)
+    return state
+
+
+# ADJUST
+def adjust(api, group, version, namespace, plural, name):
+    config.load_incluster_config()
+
+    api = client.CustomObjectsApi()
+
+    patch_autopromote = {
+        "spec": {"strategy": {"blueGreen": {"autoPromotionEnabled": True, }}}
+    }
+
+    # Timeout for watch loop in seconds
+    watch_timeout = servo_config["watch_timeout"]
+
+    # set to true after an adjustment
+    changing = False
+
+    # rollout namespaced object requirements
+    group = "argoproj.io"
+    version = "v1alpha1"
+    plural = "rollouts"
+
+    name = servo_config["name"]
+    namespace = servo_config["namespace"]
+    container_name = servo_config["container_name"]
+
+    object = get_object(api, group, version, namespace, plural, name)
+
+    # determine which container to update
+    container_index = 0
+    for n in object["spec"]["template"]["spec"]["containers"]:
+        if container_name == n["name"]:
+            break
+        container_index += 1
+
+    # get the container template
+    app = object["spec"]["template"]["spec"]["containers"][container_index]
+
+    # example of updating application arguments
+    # new_args = ['busy = ' + busy_param]
+    # app['args'] = new_args
+
+    # Update resource limits
+    new_limits = {
+        "limits": {"cpu": cpu, "memory": mem},
+        "requests": {"cpu": cpu, "memory": mem},
+    }
+    app["resources"].update(new_limits)
+
+    # Update replica count
+    object["spec"]["replicas"] = replicas
+    object["spec"]["template"]["spec"]["containers"][container_index].update(app)
+
     changing = patch_object(api, group, version, namespace, plural, name, body)
     watch_object(api, group, version, namespace, plural, name, changing)
+
+def read_config():
+    servo_config = yaml.safe_load(open("config.yaml"))["rollouts"]
+    return servo_config
+
+
+def import_encoder_base():
+    try:
+        return importlib.import_module('encoders.base')
+    except ImportError:
+        raise ImportError(
+            'Unable to import base for encoders when handling `command` section.')
+
+
+def cpuunits(s):
+    '''convert a string for CPU resource (with optional unit suffix) into a number'''
+    if s[-1] == "m":  # there are no units other than 'm' (millicpu)
+        return float(s[:-1])/1000.0
+    return float(s)
+
+
+# valid mem units: E, P, T, G, M, K, Ei, Pi, Ti, Gi, Mi, Ki
+# nb: 'm' suffix found after setting 0.7Gi
+mumap = {"E": 1000**6,  "P": 1000**5,  "T": 1000**4,  "G": 1000**3,  "M": 1000**2,  "K": 1000, "m": 1000**-1,
+         "Ei": 1024**6, "Pi": 1024**5, "Ti": 1024**4, "Gi": 1024**3, "Mi": 1024**2, "Ki": 1024}
+
+
+def memunits(s):
+    '''convert a string for memory resource (with optional unit suffix) into a number'''
+    for u, m in mumap.items():
+        if s.endswith(u):
+            return float(s[:-len(u)]) * m
+    return float(s)
+
+
+def encoder_setting_name(setting_name, encoder_config):
+    prefix = encoder_config['setting_prefix'] if 'setting_prefix' in encoder_config else ''
+    return '{}{}'.format(prefix, setting_name)
+
+
+def describe_encoder(value, config, exception_context='a describe phase of an encoder'):
+    encoder_base = import_encoder_base()
+    try:
+        settings = encoder_base.describe(config, value or '')
+        for name, setting in settings.items():
+            yield (encoder_setting_name(name, config), setting)
+    except BaseException as e:
+        raise Exception('Error while handling {}: {}'.format(
+            exception_context, str(e)))
+
+
+def encode_encoder(settings, config, expected_type=None, exception_context='an encode phase of an encoder'):
+    encoder_base = import_encoder_base()
+    try:
+        sanitized_settings = settings
+        prefix = config.get('setting_prefix')
+        if prefix:
+            sanitized_settings = dict(map(lambda i: (i[0].lstrip(prefix), i[1]),
+                                          filter(lambda i: i[0].startswith(prefix), settings.items())))
+        encoded_value, encoded_settings = encoder_base.encode(
+            config, sanitized_settings, expected_type=expected_type)
+        encoded_settings = list(map(lambda setting_name: encoder_setting_name(
+            setting_name, config), encoded_settings))
+        return encoded_value, encoded_settings
+    except BaseException as e:
+        raise Exception('Error while handling {}: {}'.format(
+            exception_context, str(e)))
+
+class RolloutAdjust(Adjust):
+
+    def _progress(self, progress, message):
+        """adapter for the default base class implementation of progress message"""
+        self.progress = progress
+        self.print_progress(message=message)
+
+    def query(self):
+        try:
+            servo_config = read_config()
+        except ConfigError as e:
+            # maybe we should introduce reason=config (or even a different status class, instead of 'failed')
+            raise AdjustError(str(e), reason="unknown")
+        r = query(servo_config)
+        return r
+
+    def adjust(self, data):
+        try:
+            desc = read_desc()
+        except ConfigError as e:
+            # maybe we should introduce reason=config (or even a different status class, instead of 'failed')
+            raise AdjustError(str(e), reason="unknown")
+        # all other exceptions: default handler - stack trace and sys.exit(1)
+        r = update(namespace, desc, data, self._progress)
+        return r
+
+
+if __name__ == "__main__":
+ 
+    name = servo_config["name"]
+    namespace = servo_config["namespace"]
+    container_name = servo_config["container_name"]
+
+    RolloutAdjust(
+        VERSION,
+        "Argo Rollouts driver for Opsani servo.\n"
+        "Note: set OPTUNE_USE_DEFAULT_NAMESPACE=1 environment variable in the servo",
+        supports_cancel=False,
+        progress_interval=None).run()
+
+
 
 
 """
