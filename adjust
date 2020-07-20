@@ -1,0 +1,185 @@
+import yaml
+import time
+from pprint import pprint
+from kubernetes import client, config
+from kubernetes.client.rest import ApiException
+
+
+def get_object(api, group, version, namespace, plural, name):
+    """
+    patch an object (patch_namespaced_custom_object)
+    returns: resource_object (e.g. spec.template.spec)
+    raises: ApiException
+    """
+
+    try:
+        resource = api.get_namespaced_custom_object(
+            group, version, namespace, plural, name,
+        )
+        print("Initial Resource details:")
+        pprint(resource)
+        return resource['spec']['template']['spec']
+
+    except ApiException as e:
+        print(
+            "Exception when calling CustomObjectsApi->get_namespaced_custom_object: %s\n"
+            % e
+        )
+
+def patch_object(api, group, version, namespace, plural, name, body):
+    """
+    patch an object (patch_namespaced_custom_object)
+    returns: changing on success
+    raises: ApiException
+    """
+
+    try:
+        resource = api.patch_namespaced_custom_object(
+            group, version, namespace, plural, name, body,
+        )
+        return True
+
+    except ApiException as e:
+        print(
+            "Exception when calling CustomObjectsApi->patch_namespaced_custom_object: %s\n"
+            % e
+        )
+
+
+def watch_object(api, group, version, namespace, plural, name, changing):
+    """
+    patch an object (patch_namespaced_custom_object)
+    returns: changing on success
+    raises: ApiException
+    """
+
+    while changing is True:
+        try:
+            print("Resource list:")
+            resource_list = api.list_namespaced_custom_object(
+                group,
+                version,
+                namespace,
+                plural,
+                watch=False,
+                label_selector='app=web',
+            )
+            pprint(resource_list)
+            print("Resource list status:")
+
+            if (
+                resource_list["items"][0]["status"]["blueGreen"]["activeSelector"]
+                == resource_list["items"][0]["status"]["blueGreen"]["previewSelector"]
+            ):
+                changing = False
+                print("Change completed")
+                break
+
+            print("Resource status:")
+            pprint(resource_list["items"][0]["status"]
+                   ["blueGreen"]["activeSelector"])
+
+        except ApiException as e:
+            print(
+                "Exception when calling CustomObjectsApi->list_namespaced_custom_object: %s\n"
+                % e
+            )
+
+        time.sleep(watch_timeout)
+
+if __name__ == "__main__":
+    #pass
+
+    config.load_kube_config()
+    # config.load_incluster_config()
+
+    api = client.CustomObjectsApi()
+
+    servo_config = yaml.safe_load(open("config.yaml"))
+    print("Config")
+    pprint(servo_config)
+
+    ro_namespace = "argo-ro-test"
+    ro_name = "web-main"
+    ro_force_promote = True
+    patch_autopromote = {
+        "spec": {"strategy": {"blueGreen": {"autoPromotionEnabled": ro_force_promote, }}}
+    }
+
+    # Timeout for watch loop in seconds
+    watch_timeout = 15
+
+    # set to true after an adjustment
+    changing = False
+
+    # rollout namespaced object requirements
+    group = "argoproj.io"
+    version = "v1alpha1"
+    name = ro_name
+    plural = "rollouts"
+    namespace = ro_namespace
+
+    # adjust parameters
+    cpu = "125m"
+    mem = "256Mi"
+    replicas = "3"
+    busy = "40"
+
+    print("Hello world")
+    
+    # DESCRIBE, and ensure rollout object will autopromote
+    object=get_object(api, group, version, namespace, plural, name)
+    body = {
+        "spec": {"strategy": {"blueGreen": {"autoPromotionEnabled": ro_force_promote, }}}
+    }
+    print("Applying describe change")
+    changing = patch_object(api, group, version, namespace, plural, name, body)
+    print("Watching Describe change")
+    watch_object(api, group, version, namespace, plural, name, changing)
+
+    # ADJUST
+    object=get_object(api, group, version, namespace, plural, name)
+    body = {'spec':{'template':{'spec':object}}}
+    print("old container spec")
+    pprint(body)
+    app=body['spec']['template']['spec']['containers'][0]
+    app.update(
+        {'args': ['busy = 40'],
+        'resources': 
+            {'limits': 
+                {'cpu': '1000m',
+                'memory': '1Gi'},
+            'requests': 
+                {'cpu': '125m',
+                'memory': '128Mi'}
+            }
+        })
+    print("new container spec")
+    pprint(app)
+    body['spec']['template']['spec']['containers'][0].update(app)
+    print("new container spec")
+    pprint(body)
+    changing = patch_object(api, group, version, namespace, plural, name, body)
+    watch_object(api, group, version, namespace, plural, name, changing)
+
+
+"""
+Pseudo code:
+
+1) ensure that the rollout object exists, and get the current parameters (e.g. as per deployment)
+    cpu
+    memory
+    replicas
+    vars
+2) ensure rollouts are set to autopromote
+3) get the current rollout state
+4) support describe function based on the above state
+
+5) get adjust parameters
+6) patch rollout resource
+7) wait for resource to promote to production
+   a) deal with rollout failure and rollback (?)
+   return "reject"
+   b) check to see if activeSelector and previewSelector are the same (complete)
+   return "success"
+"""

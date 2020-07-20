@@ -1,0 +1,5 @@
+rollouts:
+  name: rollout_name # required: name of resource to manage
+  namespace: rollout # optional: namespace if different than servo
+  force_promote: true # optional: defaults to true, if a rollout has autoPromotionEnabled: false, will set the parameter to true
+
