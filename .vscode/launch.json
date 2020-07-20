@@ -5,6 +5,29 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "describe",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "--query",
+                "test123"
+            ],
+        },
+        {
+            "name": "adjust",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "test123",
+                "<",
+                "test.json"
+            ],
+        },
+        {
             "name": "Python: Current File",
             "type": "python",
             "request": "launch",
