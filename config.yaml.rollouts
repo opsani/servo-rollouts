@@ -4,7 +4,7 @@ rollouts:
   namespace: argo-ro-test # optional: namespace if different than servo
   watch_timeout: 15 # how often to check the state of the promoted replicaset
   promote_timeout: 300 # how long to wait for a promotion to succeed before timing out
-  configuration:
+  settings:
     cpu:
       type: range
       min: 0.125
