@@ -1,1 +1,19 @@
-{"application": {"components": {"argocd": {"settings": {"cpu": 3.125, "mem": 9, "replicas": 3}}}}}
+{
+    "application": {
+        "components": {
+            "argocd": {
+                "settings": {
+                    "cpu": {
+                        "value": 0.5
+                    },
+                    "mem": {
+                        "value": 0.5
+                    },
+                    "replicas": {
+                        "value": 2
+                    }
+                }
+            }
+        }
+    }
+}
