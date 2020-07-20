@@ -91,6 +91,15 @@ class RolloutAdjust(Adjust):
                         raise Exception('Unable to query environment variable {}. No value defined in target container and no default configured'.format(en))
                     settings[en] = {**ev, 'value': (cur_val if cur_val is not None else def_val)}
 
+        command = self.config.get('command')
+        if command and command.get('encoder'):
+            for name, setting in describe_encoder(
+                app.get('command', []), 
+                command['encoder'],
+                exception_context='a command section'
+            ):
+                settings[name] = setting
+
         return {'application': {'components':{ COMPONENT_NAME: {'settings': settings} }}}
 
     def adjust(self, input_data):
@@ -120,6 +129,14 @@ class RolloutAdjust(Adjust):
         # Update replica count
         tgt_resource["spec"]["replicas"] = input_settings.pop('replicas')['value']
 
+        # Update command
+        command = self.config.get('command')
+        if command and command.get('encoder'):
+            tgt_resource['command'], encoded_settings = encode_encoder(input_settings, command['encoder'], expected_type=list)
+            # Prevent encoded settings from further processing
+            for setting in encoded_settings:
+                del input_settings[setting]
+
         # Update env settings
         if self.config.get('env') and input_settings:
             app['env'] = app['env'] or []
@@ -127,12 +144,12 @@ class RolloutAdjust(Adjust):
             if sn in self.config.get('env', {}):
                 s_conf = self.config['env'][sn]
                 if 'encoder' in s_conf:
-                    val, encoded_settings = _encode_encoder(settings, ev['encoder'], expected_type=str)
+                    val, encoded_settings = _encode_encoder(input_settings, ev['encoder'], expected_type=str)
                     sv = {'value': val}
 
                     # Prevent encoded settings from further processing
                     for setting in encoded_settings:
-                        del settings[setting]
+                        del input_settings[setting]
 
                 if app['env']:
                     tgt_env = next(iter(e for e in app['env'] if e['name'] == sn), None)
