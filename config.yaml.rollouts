@@ -1,5 +1,22 @@
 rollouts:
-  name: rollout_name # required: name of resource to manage
-  namespace: rollout # optional: namespace if different than servo
-  force_promote: true # optional: defaults to true, if a rollout has autoPromotionEnabled: false, will set the parameter to true
-
+  container_name: main # name of container to manipulate in the rollout
+  name: web-main # required: name of resource to manage
+  namespace: argo-ro-test # optional: namespace if different than servo
+  watch_timeout: 15 # how often to check the state of the promoted replicaset
+  promote_timeout: 300 # how long to wait for a promotion to succeed before timing out
+  configuration:
+    cpu:
+      type: range
+      min: 0.125
+      max: 4
+      step: 0.125
+    mem:
+      type: range
+      min: 8
+      max: 12
+      step: 0.125
+    replicas:
+      type: range
+      min: 3
+      max: 9
+      step: 1
