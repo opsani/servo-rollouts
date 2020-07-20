@@ -50,6 +50,7 @@ class RolloutAdjust(Adjust):
         changing = self._try_patch_object(body)
         tgt_resource = self.api.get_namespaced_custom_object(GROUP, VERSION, self.config['namespace'], PLURAL, self.config['name'])
         self._watch_object(changing)
+        self.debug(tgt_resource)
 
         # determine which container to query
         container_index = 0
@@ -60,7 +61,7 @@ class RolloutAdjust(Adjust):
 
         # get the container template
         app = tgt_resource["spec"]["template"]["spec"]["containers"][container_index]
-
+        #self.debug(f"index: {container_index} app: {app}")
         settings = self.config.get('settings', {})
         for sn in ['cpu', 'mem', 'replicas']:
             settings.setdefault(sn, {})['min'] = settings.get(sn, {}).get('min', DEFAULTS[sn]['min'])
@@ -69,8 +70,8 @@ class RolloutAdjust(Adjust):
             settings[sn]['type'] = 'range'
 
         settings['replicas']['value'] = tgt_resource["spec"]["replicas"]
-        settings['cpu']['value'] = _cpuunits(app['resources']['limit']['cpu'])
-        settings['mem']['value'] = _memunits(app['resources']['limit']['memory'])
+        settings['cpu']['value'] = _cpuunits(app['resources']['limits']['cpu'])
+        settings['mem']['value'] = _memunits(app['resources']['limits']['memory'])
 
         if self.config.get('env'):
             env_map = { e['name']: e['value'] for e in app['env'] }
