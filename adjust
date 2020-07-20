@@ -76,15 +76,22 @@ class RolloutAdjust(Adjust):
             env_map = { e['name']: e['value'] for e in app['env'] }
             for en, ev in self.config['env'].items():
                 ev = dict(ev) # make a copy (only need shallow)
-                if 'encoder' in ev: # TODO
-                    raise Exception('Unable to query environment variable {}. Encoders not supported yet'.format(en))
-                def_val = ev.pop('default', None)
-                cur_val = env_map.get(en)
-                if cur_val is None and def_val is None:
-                    raise Exception('Unable to query environment variable {}. No value defined in target container and no default configured'.format(en))
-                settings['settings'][en] = {**ev, 'value': (cur_val if cur_val is not None else def_val)}
+                if 'encoder' in ev:
+                    for name, setting in describe_encoder(
+                        env_map.get(en), 
+                        ev['encoder'],
+                        exception_context='an environment variable {}'
+                        ''.format(en)
+                    ):
+                        settings[name] = setting
+                else:
+                    def_val = ev.pop('default', None)
+                    cur_val = env_map.get(en)
+                    if cur_val is None and def_val is None:
+                        raise Exception('Unable to query environment variable {}. No value defined in target container and no default configured'.format(en))
+                    settings[en] = {**ev, 'value': (cur_val if cur_val is not None else def_val)}
 
-        return {'application': {'components':{ COMPONENT_NAME: settings }}}
+        return {'application': {'components':{ COMPONENT_NAME: {'settings': settings} }}}
 
     def adjust(self, input_data):
         input_settings = input_data['application']['components'].get(COMPONENT_NAME, {}).get('settings')
@@ -120,11 +127,17 @@ class RolloutAdjust(Adjust):
             if sn in self.config.get('env', {}):
                 s_conf = self.config['env'][sn]
                 if 'encoder' in s_conf:
-                    continue # TODO
+                    val, encoded_settings = _encode_encoder(settings, ev['encoder'], expected_type=str)
+                    sv = {'value': val}
+
+                    # Prevent encoded settings from further processing
+                    for setting in encoded_settings:
+                        del settings[setting]
+
                 if app['env']:
                     tgt_env = next(iter(e for e in app['env'] if e['name'] == sn), None)
                     if tgt_env:
-                        tgt_env.value = str(sv['value']) # Note tgt_env is a reference so updating its value is reflected in tgt_cont
+                        tgt_env['value'] = str(sv['value']) # Note tgt_env is a reference so updating its value is reflected in tgt_cont
                     else:
                         tgt_cont.env.append({'name': sn, 'value': str(sv['value'])})
                 else:
@@ -217,6 +230,43 @@ def _memunits(s):
         if s.endswith(u):
             return float(s[:-len(u)]) * m
     return float(s)
+
+
+def _import_encoder_base():
+    try:
+        return importlib.import_module('encoders.base')
+    except ImportError:
+        raise ImportError('Unable to import base for encoders.')
+
+
+def _encoder_setting_name(setting_name, encoder_config):
+    prefix = encoder_config['setting_prefix'] if 'setting_prefix' in encoder_config else ''
+    return '{}{}'.format(prefix, setting_name)
+
+
+def _describe_encoder(value, config, exception_context='a describe phase of an encoder'):
+    encoder_base = _import_encoder_base()
+    try:
+        settings = encoder_base.describe(config, value or '')
+        for name, setting in settings.items():
+            yield (_encoder_setting_name(name, config), setting)
+    except BaseException as e:
+        raise Exception('Error while handling {}: {}'.format(exception_context, str(e)))
+
+
+def _encode_encoder(settings, config, expected_type=None, exception_context='an encode phase of an encoder'):
+    encoder_base = _import_encoder_base()
+    try:
+        sanitized_settings = settings
+        prefix = config.get('setting_prefix')
+        if prefix:
+            sanitized_settings = dict(map(lambda i: (i[0].lstrip(prefix), i[1]),
+                                          filter(lambda i: i[0].startswith(prefix), settings.items())))
+        encoded_value, encoded_settings = encoder_base.encode(config, sanitized_settings, expected_type=expected_type)
+        encoded_settings = list(map(lambda setting_name: _encoder_setting_name(setting_name, config), encoded_settings))
+        return encoded_value, encoded_settings
+    except BaseException as e:
+        raise Exception('Error while handling {}: {}'.format(exception_context, str(e)))
 
 
 if __name__ == "__main__":
