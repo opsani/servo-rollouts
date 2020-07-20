@@ -72,6 +72,18 @@ class RolloutAdjust(Adjust):
         settings['cpu']['value'] = _cpuunits(app['resources']['limit']['cpu'])
         settings['mem']['value'] = _memunits(app['resources']['limit']['memory'])
 
+        if self.config.get('env'):
+            env_map = { e['name']: e['value'] for e in app['env'] }
+            for en, ev in self.config['env'].items():
+                ev = dict(ev) # make a copy (only need shallow)
+                if 'encoder' in ev: # TODO
+                    raise Exception('Unable to query environment variable {}. Encoders not supported yet'.format(en))
+                def_val = ev.pop('default', None)
+                cur_val = env_map.get(en)
+                if cur_val is None and def_val is None:
+                    raise Exception('Unable to query environment variable {}. No value defined in target container and no default configured'.format(en))
+                settings['settings'][en] = {**ev, 'value': (cur_val if cur_val is not None else def_val)}
+
         return {'application': {'components':{ COMPONENT_NAME: settings }}}
 
     def adjust(self, input_data):
@@ -92,14 +104,35 @@ class RolloutAdjust(Adjust):
         app = tgt_resource["spec"]["template"]["spec"]["containers"][container_index]
 
         # Update resources
-        cpu_val, mem_val = input_settings['cpu']['value'], '{}Gi'.format(input_settings['mem']['value'])
+        cpu_val, mem_val = input_settings.pop('cpu')['value'], '{}Gi'.format(input_settings.pop('mem')['value'])
         app["resources"].update({
             "limits": {"cpu": cpu_val, "memory": mem_val},
             "requests": {"cpu": cpu_val, "memory": mem_val},
         })
 
         # Update replica count
-        tgt_resource["spec"]["replicas"] = input_settings['replicas']['value']
+        tgt_resource["spec"]["replicas"] = input_settings.pop('replicas')['value']
+
+        # Update env settings
+        if self.config.get('env') and input_settings:
+            app['env'] = app['env'] or []
+        for sn, sv in input_settings.items():
+            if sn in self.config.get('env', {}):
+                s_conf = self.config['env'][sn]
+                if 'encoder' in s_conf:
+                    continue # TODO
+                if app['env']:
+                    tgt_env = next(iter(e for e in app['env'] if e['name'] == sn), None)
+                    if tgt_env:
+                        tgt_env.value = str(sv['value']) # Note tgt_env is a reference so updating its value is reflected in tgt_cont
+                    else:
+                        tgt_cont.env.append({'name': sn, 'value': str(sv['value'])})
+                else:
+                    app['env'] = [{'name': sn, 'value': sv['value']}]
+            else:
+                self.print_json_error("warning", "None", 
+                    "Unknown setting input recieved {}: {}".format(sn, sv))
+
         tgt_resource["spec"]["strategy"]["blueGreen"]["autoPromotionEnabled"] = True # ensure that we will auto-promote changes
 
         changing = self._try_patch_object(tgt_resource)
