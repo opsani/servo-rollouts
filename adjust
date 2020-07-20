@@ -118,23 +118,22 @@ if __name__ == "__main__":
     name = ro_name
     plural = "rollouts"
     namespace = ro_namespace
+    container_name = 'main'
 
     # adjust parameters
-    cpu = "125m"
-    mem = "256Mi"
-    replicas = "3"
-    busy = "40"
-
-    print("Hello world")
+    new_cpu = "1250m"
+    new_mem = "1.25Gi"
+    replicas = 4
+    busy_param = "40"
     
     # DESCRIBE, and ensure rollout object will autopromote
     object=get_object(api, group, version, namespace, plural, name)
     body = {
         "spec": {"strategy": {"blueGreen": {"autoPromotionEnabled": ro_force_promote, }}}
     }
-    print("Applying describe change")
+    #print("Applying describe change")
     changing = patch_object(api, group, version, namespace, plural, name, body)
-    print("Watching Describe change")
+    #print("Watching Describe change")
     watch_object(api, group, version, namespace, plural, name, changing)
 
     # ADJUST
@@ -142,21 +141,28 @@ if __name__ == "__main__":
     body = {'spec':{'template':{'spec':object}}}
     print("old container spec")
     pprint(body)
-    app=body['spec']['template']['spec']['containers'][0]
-    app.update(
-        {'args': ['busy = 40'],
-        'resources': 
-            {'limits': 
-                {'cpu': '1000m',
-                'memory': '1Gi'},
-            'requests': 
-                {'cpu': '125m',
-                'memory': '128Mi'}
-            }
-        })
+
+    # determine which container to update
+    container_index=0
+    for n in body['spec']['template']['spec']['containers']:
+        if container_name == n['name']:
+            break
+        container_index += 1
+    
+    # get the container template
+    app = body['spec']['template']['spec']['containers'][container_index]
+
+    new_args=['busy = ' + busy_param ]
+    new_limits = {'limits': {'cpu': new_cpu,
+                             'memory': new_mem},
+                  }
+    app['args']=new_args
+    app['resources'].update(new_limits)
+
+    body['spec']['replicas']=replicas
     print("new container spec")
     pprint(app)
-    body['spec']['template']['spec']['containers'][0].update(app)
+    body['spec']['template']['spec']['containers'][container_index].update(app)
     print("new container spec")
     pprint(body)
     changing = patch_object(api, group, version, namespace, plural, name, body)
