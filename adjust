@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import sys
 from pprint import pprint
 import time
 import yaml
@@ -9,6 +10,7 @@ from kubernetes import client, config as k_config, watch
 from kubernetes.client.rest import ApiException
 
 from adjust import Adjust, AdjustError
+from threading import Timer
 
 DEBUG = os.getenv('DEBUG')
 CONFIG_PATH = os.environ.get('OPTUNE_CONFIG', './config.yaml')
@@ -26,6 +28,7 @@ DEFAULTS = {
     'replicas': { 'min': 0, 'max': 6, 'step': 1 }
 }
 
+
 class RolloutAdjust(Adjust):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -41,6 +44,7 @@ class RolloutAdjust(Adjust):
         else:
             k_config.load_kube_config()
         self.api = client.CustomObjectsApi()
+        self.timeout = None
 
     def query(self):
         body = { # First let's ensure that we will auto-promote changes
@@ -107,6 +111,7 @@ class RolloutAdjust(Adjust):
         input_settings = input_data['application']['components'].get(COMPONENT_NAME, {}).get('settings')
         if not input_settings:
             return {"status": "ok", "reason": "Skipped due to no data"}
+        self.start_timeout()
 
         tgt_resource = self.api.get_namespaced_custom_object(GROUP, VERSION, self.config['namespace'], PLURAL, self.config['name'])
 
@@ -169,6 +174,29 @@ class RolloutAdjust(Adjust):
         changing = self._try_patch_object(tgt_resource)
 
         self._watch_object(changing)
+
+    def stop_timeout(self):
+        if self.timeout:
+            self.debug(f"stopped timeout")
+            self.timeout.cancel()
+
+    def start_timeout(self):
+        timeout = self.config.get("promote_timeout")
+        self.debug(f"timeout started for {timeout} seconds")
+        self.stop_timeout()
+
+        if not self.config.get("promote_timeout"):
+            return
+
+        self.timeout = Timer(self.config.get(
+            "promote_timeout"), self.return_timeout)
+        # allow program to exit when main thread finishes (see https://docs.python.org/3.8/library/threading.html#threading.Thread.daemon)
+        self.timeout.daemon = True
+        self.timeout.start()
+
+    def return_timeout(self):
+        print('{"status": "failed", "reason": "timeout"}')
+        sys.exit
 
 
     def _watch_object(self, changing):
