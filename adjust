@@ -26,6 +26,8 @@ DEFAULTS = {
     'replicas': { 'min': 0, 'max': 6, 'step': 1 }
 }
 
+DEFAULT_TIMEOUT = 600
+
 class RolloutAdjust(Adjust):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -177,10 +179,9 @@ class RolloutAdjust(Adjust):
         returns: rollout-selector
         raises: non ApiExceptions
         """
-        # TODO?: timeout for inifinite loop
+        start_time = time.time()
         while changing is True:
             try:
-                # print("Resource list:")
                 resource_list = self.api.list_namespaced_custom_object(
                     GROUP,
                     VERSION,
@@ -192,11 +193,11 @@ class RolloutAdjust(Adjust):
                 if DEBUG:
                     pprint(resource_list)
                     print("Resource list status:")
-                active_selector = {
-                    "active": resource_list["items"][0]["status"]["blueGreen"][
-                        "activeSelector"
-                    ]
-                }
+                # active_selector = { TODO: Not being used
+                #     "active": resource_list["items"][0]["status"]["blueGreen"][
+                #         "activeSelector"
+                #     ]
+                # }
                 if (
                     resource_list["items"][0]["status"]["blueGreen"]["activeSelector"]
                     == resource_list["items"][0]["status"]["blueGreen"]["previewSelector"]
@@ -204,7 +205,7 @@ class RolloutAdjust(Adjust):
                     changing = False
                     if DEBUG:
                         print("Change completed")
-                    return active_selector
+                    return # active_selector TODO: Not being used
                 
                 if DEBUG:
                     print("Resource status:")
@@ -213,6 +214,9 @@ class RolloutAdjust(Adjust):
             except ApiException as e:
                 self.print_json_error("failure", e.__class__.__name__, 
                     "Exception when calling CustomObjectsApi->list_namespaced_custom_object: %s\n" % str(e))
+
+            if time.time() - start_time > self.config.get('promote_timeout', DEFAULT_TIMEOUT):
+                raise AdjustError('Timed out waiting for activeSelector to match previewSelector', reason='timeout')
 
             time.sleep(self.config.get('watch_timeout', 15))
 
