@@ -13,7 +13,6 @@ from adjust import Adjust, AdjustError
 DEBUG = os.getenv('DEBUG')
 CONFIG_PATH = os.environ.get('OPTUNE_CONFIG', './config.yaml')
 
-COMPONENT_NAME = 'argocd'
 
 # rollout namespaced object requirements
 GROUP = "argoproj.io"
@@ -51,7 +50,9 @@ class RolloutAdjust(Adjust):
 
         changing = self._try_patch_object(body)
         tgt_resource = self.api.get_namespaced_custom_object(GROUP, VERSION, self.config['namespace'], PLURAL, self.config['name'])
-        self._watch_object(changing)
+        labels = tgt_resource["metadata"]["labels"]
+        label = list(labels.keys())[0] + "=" + labels[list(labels.keys())[0]]
+        self._watch_object(changing, label)
         self.debug(tgt_resource)
 
         # determine which container to query
@@ -103,10 +104,11 @@ class RolloutAdjust(Adjust):
             ):
                 settings[name] = setting
 
-        return {'application': {'components':{ COMPONENT_NAME: {'settings': settings} }}}
+        return {'application': {'components': {self.config.get("container_name"): {'settings': settings}}}}
 
     def adjust(self, input_data):
-        input_settings = input_data['application']['components'].get(COMPONENT_NAME, {}).get('settings')
+        input_settings = input_data['application']['components'].get(
+            self.config.get("container_name"), {}).get('settings')
         if not input_settings:
             return {"status": "ok", "reason": "Skipped due to no data"}
 
@@ -167,13 +169,12 @@ class RolloutAdjust(Adjust):
                     "Unknown setting input recieved {}: {}".format(sn, sv))
 
         tgt_resource["spec"]["strategy"]["blueGreen"]["autoPromotionEnabled"] = True # ensure that we will auto-promote changes
-
+        labels = tgt_resource["metadata"]["labels"]
+        label = list(labels.keys())[0] + "=" + labels[list(labels.keys())[0]]
         changing = self._try_patch_object(tgt_resource)
+        self._watch_object(changing,label)
 
-        self._watch_object(changing)
-
-
-    def _watch_object(self, changing):
+    def _watch_object(self, changing, label):
         """
         patch an object (patch_namespaced_custom_object)
         returns: rollout-selector
@@ -181,6 +182,9 @@ class RolloutAdjust(Adjust):
         """
         start_time = time.time()
         while changing is True:
+            # Sleep first to give Argo a chance to sync
+            time.sleep(self.config.get('watch_timeout', 15))
+
             try:
                 resource_list = self.api.list_namespaced_custom_object(
                     GROUP,
@@ -188,7 +192,7 @@ class RolloutAdjust(Adjust):
                     self.config['namespace'],
                     PLURAL,
                     watch=False,
-                    label_selector="app=web", # TODO?
+                    label_selector=label, # TODO?
                 )
                 if DEBUG:
                     pprint(resource_list)
@@ -218,8 +222,6 @@ class RolloutAdjust(Adjust):
             if time.time() - start_time > self.config.get('promote_timeout', DEFAULT_TIMEOUT):
                 raise AdjustError('Timed out waiting for activeSelector to match previewSelector', reason='timeout')
 
-            time.sleep(self.config.get('watch_timeout', 15))
-
     def _try_patch_object(self, body):
         """
         patch an object (patch_namespaced_custom_object)
@@ -227,7 +229,7 @@ class RolloutAdjust(Adjust):
         raises: non ApiExceptions
         """
         try:
-            self.api.patch_namespaced_custom_object(GROUP, VERSION, self.config['namespace'], PLURAL, self.config['name'], body)
+            self.api.patch_namespaced_custom_object(GROUP, VERSION, self.config['namespace'], PLURAL, self.config['name'], body)             
             return True
         except ApiException as e:
             self.print_json_error("failure", e.__class__.__name__, str(e))
