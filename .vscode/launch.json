@@ -4,6 +4,7 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
         {
             "name": "describe",
             "type": "python",
@@ -19,8 +20,11 @@
             "name": "adjust",
             "type": "python",
             "request": "launch",
-            "program": "${file}",
+            "program": "adjust",
             "console": "integratedTerminal",
+            "env": {
+                "DEBUG": "True"
+            },
             "args": [
                 "test123",
                 "<",

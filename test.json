@@ -1,13 +1,13 @@
 {
     "application": {
         "components": {
-            "argocd": {
+            "main": {
                 "settings": {
                     "cpu": {
-                        "value": 0.5
+                        "value": 0.975
                     },
                     "mem": {
-                        "value": 0.5
+                        "value": 0.675
                     },
                     "replicas": {
                         "value": 2

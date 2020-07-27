@@ -1,4 +1,5 @@
 adjust.py
+.env
 __pycache__
 poetry.lock
 *.pyc
