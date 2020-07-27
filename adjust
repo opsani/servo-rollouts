@@ -50,8 +50,7 @@ class RolloutAdjust(Adjust):
 
         changing = self._try_patch_object(body)
         tgt_resource = self.api.get_namespaced_custom_object(GROUP, VERSION, self.config['namespace'], PLURAL, self.config['name'])
-        labels = tgt_resource["metadata"]["labels"]
-        label = list(labels.keys())[0] + "=" + labels[list(labels.keys())[0]]
+        label = self._get_rollout_labels(tgt_resource)
         self._watch_object(changing, label)
         self.debug(tgt_resource)
 
@@ -169,8 +168,7 @@ class RolloutAdjust(Adjust):
                     "Unknown setting input recieved {}: {}".format(sn, sv))
 
         tgt_resource["spec"]["strategy"]["blueGreen"]["autoPromotionEnabled"] = True # ensure that we will auto-promote changes
-        labels = tgt_resource["metadata"]["labels"]
-        label = list(labels.keys())[0] + "=" + labels[list(labels.keys())[0]]
+        label = self._get_rollout_labels(tgt_resource)
         changing = self._try_patch_object(tgt_resource)
         self._watch_object(changing,label)
 
@@ -221,6 +219,16 @@ class RolloutAdjust(Adjust):
 
             if time.time() - start_time > self.config.get('promote_timeout', DEFAULT_TIMEOUT):
                 raise AdjustError('Timed out waiting for activeSelector to match previewSelector', reason='timeout')
+
+    def _get_rollout_labels(self, resource):
+        labels = resource["metadata"]["labels"]
+        label = ''
+        for key in list(labels.keys()):
+            if label == '':
+                label = key+"="+labels[key]
+            else:
+                label = label+","+key+"="+labels[key]
+        return label
 
     def _try_patch_object(self, body):
         """
