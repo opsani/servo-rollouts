@@ -4,7 +4,7 @@
             "main": {
                 "settings": {
                     "cpu": {
-                        "value": 0.975
+                        "value": 0.175
                     },
                     "mem": {
                         "value": 0.675

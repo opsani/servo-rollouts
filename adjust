@@ -7,6 +7,8 @@ import yaml
 
 from kubernetes import client, config as k_config, watch
 from kubernetes.client.rest import ApiException
+from datetime import datetime
+from dateutil.parser import parse
 
 from adjust import Adjust, AdjustError
 
@@ -195,23 +197,27 @@ class RolloutAdjust(Adjust):
                 if DEBUG:
                     pprint(resource_list)
                     print("Resource list status:")
-                # active_selector = { TODO: Not being used
-                #     "active": resource_list["items"][0]["status"]["blueGreen"][
-                #         "activeSelector"
-                #     ]
-                # }
-                if (
-                    resource_list["items"][0]["status"]["blueGreen"]["activeSelector"]
-                    == resource_list["items"][0]["status"]["blueGreen"]["previewSelector"]
-                ):
+
+                latest={}
+                for selector in resource_list['items'][0]['status']['conditions']:
+                    if latest == {}:
+                        latest = selector
+                    elif parse(selector['lastUpdateTime']) > parse(latest['lastUpdateTime']):
+                        latest = selector
+                if not latest['type'] in ['Available','Progressing']:
+                    raise AdjustError(latest['message'], reason=latest['type'])
                     changing = False
                     if DEBUG:
-                        print("Change completed")
-                    return # active_selector TODO: Not being used
-                
-                if DEBUG:
-                    print("Resource status:")
-                    pprint(resource_list["items"][0]["status"]["blueGreen"]["activeSelector"])
+                        print("resource_list for selector:")
+                        pprint(resource_list['items'][0]['status']['conditions'])
+                else:
+                    if (
+                        resource_list["items"][0]["status"]["blueGreen"]["activeSelector"]
+                        == resource_list["items"][0]["status"]["blueGreen"]["previewSelector"]
+                    ):
+                        changing = False
+                        if DEBUG:
+                            print("Change completed")
 
             except ApiException as e:
                 self.print_json_error("failure", e.__class__.__name__, 
