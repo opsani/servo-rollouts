@@ -128,7 +128,7 @@ class RolloutAdjust(Adjust):
         app = tgt_resource["spec"]["template"]["spec"]["containers"][container_index]
 
         # Update resources
-        cpu_val, mem_val = input_settings.pop('cpu')['value'], '{}Gi'.format(input_settings.pop('mem')['value'])
+        cpu_val, mem_val = '{}m'.format(int(input_settings.pop('cpu')['value'] * 1000)), '{}Gi'.format(input_settings.pop('mem')['value'])
         app["resources"].update({
             "limits": {"cpu": cpu_val, "memory": mem_val},
             "requests": {"cpu": cpu_val, "memory": mem_val},
