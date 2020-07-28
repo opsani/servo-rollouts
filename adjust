@@ -29,6 +29,8 @@ DEFAULTS = {
 
 DEFAULT_TIMEOUT = 600
 
+GIBIBYTE = 1073741824 # = 1024 * 1024 * 1024
+
 class RolloutAdjust(Adjust):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -75,7 +77,7 @@ class RolloutAdjust(Adjust):
 
         settings['replicas']['value'] = tgt_resource["spec"]["replicas"]
         settings['cpu']['value'] = _cpuunits(app['resources']['limits']['cpu'])
-        settings['mem']['value'] = _memunits(app['resources']['limits']['memory'])
+        settings['mem']['value'] = _memunits(app['resources']['limits']['memory']) / GIBIBYTE
 
         if self.config.get('env'):
             env_map = { e['name']: e['value'] for e in app['env'] }
