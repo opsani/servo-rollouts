@@ -253,6 +253,8 @@ class RolloutAdjust(Adjust):
 
 def _cpuunits(s):
     '''convert a string for CPU resource (with optional unit suffix) into a number'''
+    if isinstance(s, (int, float)):
+        return float(s)
     if s[-1] == "m":  # there are no units other than 'm' (millicpu)
         return float(s[:-1])/1000.0
     return float(s)
