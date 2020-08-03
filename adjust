@@ -48,13 +48,7 @@ class RolloutAdjust(Adjust):
         self.api = client.CustomObjectsApi()
 
     def query(self):
-        body = { # First let's ensure that we will auto-promote changes
-            "spec": {"strategy": {"blueGreen": {"autoPromotionEnabled": True,}}}
-        }
-
-        changing = self._try_patch_object(body)
         tgt_resource = self.api.get_namespaced_custom_object(GROUP, VERSION, self.config['namespace'], PLURAL, self.config['name'])
-        label = self._get_rollout_labels(tgt_resource)
         self.debug(tgt_resource)
 
         # determine which container to query
@@ -132,6 +126,9 @@ class RolloutAdjust(Adjust):
             "limits": {"cpu": cpu_val, "memory": mem_val},
             "requests": {"cpu": cpu_val, "memory": mem_val},
         })
+
+        # Ensure that we will auto-promote changes
+        tgt_resource["spec"]["strategy"]["blueGreen"]["autoPromotionEnabled"] = True
 
         # Update replica count
         tgt_resource["spec"]["replicas"] = input_settings.pop('replicas')['value']
