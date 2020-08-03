@@ -55,7 +55,6 @@ class RolloutAdjust(Adjust):
         changing = self._try_patch_object(body)
         tgt_resource = self.api.get_namespaced_custom_object(GROUP, VERSION, self.config['namespace'], PLURAL, self.config['name'])
         label = self._get_rollout_labels(tgt_resource)
-        self._watch_object(changing, label)
         self.debug(tgt_resource)
 
         # determine which container to query
