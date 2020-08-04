@@ -14,6 +14,7 @@ from adjust import Adjust, AdjustError
 
 DEBUG = os.getenv('DEBUG')
 CONFIG_PATH = os.environ.get('OPTUNE_CONFIG', './config.yaml')
+CONFIG_KEY = os.path.basename(__file__) if os.environ.get('OPTUNE_USE_DRIVER_NAME') else 'rollouts'
 
 
 # rollout namespaced object requirements
@@ -36,10 +37,10 @@ class RolloutAdjust(Adjust):
         super().__init__(*args, **kwargs)
         # Load config first so that its info can alter the context of the client if needed
         with open(CONFIG_PATH) as conf_file:
-            self.config = yaml.safe_load(conf_file)["rollouts"]
-        assert self.config.get("name"), "No rollouts name configured"
-        assert self.config.get("namespace"), "No rollouts namespace configured"
-        assert self.config.get("container_name"), "No rollouts container_name configured"
+            self.config = yaml.safe_load(conf_file)[CONFIG_KEY]
+        assert self.config.get("name"), "No rollouts name configured under key {}".format(CONFIG_KEY)
+        assert self.config.get("namespace"), "No rollouts namespace configured under key {}".format(CONFIG_KEY)
+        assert self.config.get("container_name"), "No rollouts container_name configured under key {}".format(CONFIG_KEY)
 
         if os.getenv('KUBERNETES_SERVICE_HOST'): # If running in a kubernetes cluster
             k_config.load_incluster_config()
