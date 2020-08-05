@@ -204,11 +204,12 @@ class RolloutAdjust(Adjust):
                     elif parse(selector['lastUpdateTime']) > parse(latest['lastUpdateTime']):
                         latest = selector
                 if not latest['type'] in ['Available','Progressing']:
-                    raise AdjustError(latest['message'], reason=latest['type'])
-                    changing = False
-                    if DEBUG:
-                        print("resource_list for selector:")
-                        pprint(resource_list['items'][0]['status']['conditions'])
+                    reason = 'scheduling-failed' if 'exceeded quota' in latest['message'] else latest['type']
+                    raise AdjustError(latest['message'], reason=reason)
+                    # changing = False # code unreachable, slated for removal
+                    # if DEBUG:
+                    #     print("resource_list for selector:")
+                    #     pprint(resource_list['items'][0]['status']['conditions'])
                 else:
                     if (
                         resource_list["items"][0]["status"]["blueGreen"]["activeSelector"]
