@@ -224,7 +224,7 @@ class RolloutAdjust(Adjust):
                     "Exception when calling CustomObjectsApi->list_namespaced_custom_object: %s\n" % str(e))
 
             if time.time() - start_time > self.config.get('promote_timeout', DEFAULT_TIMEOUT):
-                raise AdjustError('Timed out waiting for activeSelector to match previewSelector', status='rejected', reason='timeout')
+                raise AdjustError('Timed out waiting for activeSelector to match previewSelector', status='rejected', reason='unstable')
 
     def _get_rollout_labels(self, resource):
         labels = resource["metadata"]["labels"]
