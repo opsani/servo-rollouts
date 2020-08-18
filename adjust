@@ -2,6 +2,7 @@
 
 import os
 from pprint import pprint
+import sys
 import time
 import yaml
 
@@ -193,6 +194,7 @@ class RolloutAdjust(Adjust):
                     watch=False,
                     label_selector=label, # TODO?
                 )
+                pprint(resource_list, stream=sys.stderr)
                 if DEBUG:
                     pprint(resource_list)
                     print("Resource list status:")
