@@ -178,6 +178,9 @@ class RolloutAdjust(Adjust):
         changing = self._try_patch_object(tgt_resource)
         self._watch_object(changing,label)
 
+        if 'post_cmd' in self.config:
+            _run_shell_command(self.config['post_cmd'], self.config.get('post_cmd_tout'),'User post-command')
+
     def _watch_object(self, changing, label):
         """
         patch an object (patch_namespaced_custom_object)
