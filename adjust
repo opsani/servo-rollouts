@@ -2,6 +2,7 @@
 
 import os
 from pprint import pprint
+import subprocess
 import sys
 import time
 import yaml
@@ -109,6 +110,9 @@ class RolloutAdjust(Adjust):
             self.config.get("container_name"), {}).get('settings')
         if not input_settings:
             return {"status": "ok", "reason": "Skipped due to no data"}
+
+        if 'pre_cmd' in self.config:
+            _run_shell_command(self.config['pre_cmd'], self.config.get('pre_cmd_tout'),'User pre-command')
 
         tgt_resource = self.api.get_namespaced_custom_object(GROUP, VERSION, self.config['namespace'], PLURAL, self.config['name'])
 
@@ -309,6 +313,16 @@ def _encode_encoder(settings, config, expected_type=None, exception_context='an 
         return encoded_value, encoded_settings
     except BaseException as e:
         raise Exception('Error while handling {}: {}'.format(exception_context, str(e)))
+
+# helper:  run a Bash shell command and raise an Exception on failure
+# note:  if cmd is a string, this supports shell pipes, environment variable
+# expansion, etc.  The burden of safety is entirely on the user.
+def _run_shell_command(cmd, tout=None, cmd_type='Driver shell command'):
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        shell=True, timeout=tout, executable='/bin/bash') # nosec (see shell=true disclaimer in above comment)
+    msg = "cmd '{}', exit code {}, stdout {}, stderr {}".format(cmd,
+        res.returncode, res.stdout, res.stderr)
+    assert res.returncode == 0, '{} failed:  {}'.format(cmd_type, msg)
 
 
 if __name__ == "__main__":

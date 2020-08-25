@@ -4,6 +4,8 @@ rollouts:
   namespace: argo-ro-test # optional: namespace if different than servo
   watch_timeout: 15 # how often to check the state of the promoted replicaset
   promote_timeout: 300 # how long to wait for a promotion to succeed before timing out
+  pre_cmd: cat "Some text" > some-file.txt # Command run prior to every adjust
+  pre_cmd_tout: None # timeout for running the above command, defaults to None which sets no timeout
   settings:
     cpu:
       type: range
